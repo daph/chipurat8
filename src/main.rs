@@ -8,6 +8,7 @@ use winit_input_helper::WinitInputHelper;
 use clap::{Arg, App, crate_version};
 use rodio::{Sink, Source};
 use std::time::{Duration, Instant};
+use std::thread;
 use chipurat8::chip8::{Chip8, WIDTH, HEIGHT};
 
 const KEY_MAP: [(VirtualKeyCode, usize); 16] = [
@@ -76,6 +77,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let one_cpu_cycle = Duration::from_micros(2000);
     let one_dis_cycle = Duration::from_micros(16667);
     let one_tim_cycle = Duration::from_micros(16667);
+
+    // Ugly bad hack to force the winit event_loop to acutally run constantly
+    // Without this (at least on linux/x11) the event_loop slows itself down when there isn't
+    // constant events (like moving your mouse around wildly), which slows down all the timings.
+    // If I read the docs right ControlFlow::Poll should act like how I want, but it doesn't
+    let el_proxy = event_loop.create_proxy();
+    thread::spawn(move || {
+        loop {
+            el_proxy.send_event(()).unwrap();
+            thread::sleep(Duration::new(0, 100));
+        }
+    });
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
