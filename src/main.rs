@@ -4,7 +4,6 @@ use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
-use winit::platform::unix::WindowBuilderExtUnix;
 use winit_input_helper::WinitInputHelper;
 use clap::{Arg, App, crate_version};
 use rodio::{Sink, Source};
@@ -57,7 +56,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             .with_title("Chipurat8")
             .with_inner_size(size)
             .with_min_inner_size(size)
-            .with_override_redirect(true)
             .build(&event_loop)?
     };
 
