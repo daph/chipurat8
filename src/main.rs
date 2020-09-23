@@ -42,9 +42,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             .about("CHIP8 rom file to load")
             .takes_value(true)
             .required(true))
+        .arg(Arg::new("cpu-hz")
+            .short('c')
+            .long("cpu-hz")
+            .about("HZ to set the CPU to operate at")
+            .takes_value(true)
+            .default_value("500"))
         .get_matches();
 
     let rom = matches.value_of("rom").unwrap();
+    let cpu_hz = matches.value_of("cpu-hz").unwrap().parse::<u64>()?;
+    let cpu_cycle = 1000000 / cpu_hz;
 
     let mut chip8 = Chip8::new();
     chip8.init(rom);
@@ -66,15 +74,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         Pixels::new(WIDTH as u32, HEIGHT as u32, surface_texture)?
     };
 
+    // Set up some stuff for the sound
     let device = rodio::default_output_device().unwrap();
     let sink = Sink::new(&device);
+
+    // Bunch of stuff to control timing of the CPU, display, and timers
     let mut time = Instant::now();
-    let mut time2 = Instant::now();
-    let mut cpu_dt = time2.duration_since(time);
-    let mut display_dt = time2.duration_since(time);
-    let mut timer_dt = time2.duration_since(time);
-    let mut cycle_count = 0;
-    let one_cpu_cycle = Duration::from_micros(2000);
+    let mut cpu_dt = Duration::new(0, 0);
+    let mut display_dt = Duration::new(0, 0);
+    let mut timer_dt = Duration::new(0, 0);
+    let one_cpu_cycle = Duration::from_micros(cpu_cycle);
     let one_dis_cycle = Duration::from_micros(16667);
     let one_tim_cycle = Duration::from_micros(16667);
 
@@ -94,20 +103,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         *control_flow = ControlFlow::Poll;
 
         let now = Instant::now();
-        let dt = now.duration_since(time2);
+        let dt = now.duration_since(time);
         cpu_dt += dt;
         display_dt += dt;
         timer_dt += dt;
-        time2 = now;
-        if now.duration_since(time) >= Duration::from_secs(1) {
-            println!("{}", cycle_count);
-            time = now;
-            cycle_count = 0;
-        }
+        time = now;
 
         if cpu_dt >= one_cpu_cycle {
             chip8.run_cycle();
-            cycle_count += 1;
             cpu_dt -= one_cpu_cycle;
         }
 
