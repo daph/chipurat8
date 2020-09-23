@@ -342,7 +342,7 @@ impl Chip8 {
                 },
                 // FX29: Sets I to the location of the sprite for the caracter in VX
                 0x29 => {
-                    self.i = (self.v[get_opx(op)]+0x050) as usize;
+                    self.i = ((self.v[get_opx(op)]*5)+0x050) as usize;
                     PCUpdateFlag::Next
                 },
                 // FX33: Stores the BCD representatin of VX, with the most significant of three
