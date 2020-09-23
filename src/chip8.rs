@@ -90,7 +90,7 @@ impl Chip8 {
         self.sound_timer > 0
     }
 
-    fn dec_timers(&mut self) {
+    pub fn dec_timers(&mut self) {
         if self.delay_timer > 0 {
             self.delay_timer -= 1;
         }
@@ -108,8 +108,6 @@ impl Chip8 {
             PCUpdateFlag::Set(addr) => self.pc = addr,
             PCUpdateFlag::Block => (),
         }
-
-        self.dec_timers();
     }
 
     fn fetch_opcode(&self) -> u16 {

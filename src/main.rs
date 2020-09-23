@@ -4,10 +4,11 @@ use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
+use winit::platform::unix::WindowBuilderExtUnix;
 use winit_input_helper::WinitInputHelper;
 use clap::{Arg, App, crate_version};
 use rodio::{Sink, Source};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use chipurat8::chip8::{Chip8, WIDTH, HEIGHT};
 
 const KEY_MAP: [(VirtualKeyCode, usize); 16] = [
@@ -56,6 +57,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .with_title("Chipurat8")
             .with_inner_size(size)
             .with_min_inner_size(size)
+            .with_override_redirect(true)
             .build(&event_loop)?
     };
 
@@ -67,22 +69,48 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let device = rodio::default_output_device().unwrap();
     let sink = Sink::new(&device);
-
+    let mut time = Instant::now();
+    let mut time2 = Instant::now();
+    let mut cpu_dt = time2.duration_since(time);
+    let mut display_dt = time2.duration_since(time);
+    let mut timer_dt = time2.duration_since(time);
+    let mut cycle_count = 0;
+    let one_cpu_cycle = Duration::from_micros(2000);
+    let one_dis_cycle = Duration::from_micros(16667);
+    let one_tim_cycle = Duration::from_micros(16667);
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
-        chip8.run_cycle();
+        let now = Instant::now();
+        let dt = now.duration_since(time2);
+        cpu_dt += dt;
+        display_dt += dt;
+        timer_dt += dt;
+        time2 = now;
+        if now.duration_since(time) >= Duration::from_secs(1) {
+            println!("{}", cycle_count);
+            time = now;
+            cycle_count = 0;
+        }
+
+        if cpu_dt >= one_cpu_cycle {
+            chip8.run_cycle();
+            cycle_count += 1;
+            cpu_dt -= one_cpu_cycle;
+        }
 
         if let Event::RedrawRequested(_) = event {
-            for (i, pixel) in pixels.get_frame().chunks_exact_mut(4).enumerate() {
-                if chip8.screen[i] == 1 {
-                    pixel.copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF])
-                } else {
-                    pixel.copy_from_slice(&[0x00, 0x00, 0x00, 0xFF])
+            if display_dt >= one_dis_cycle {
+                for (i, pixel) in pixels.get_frame().chunks_exact_mut(4).enumerate() {
+                    if chip8.screen[i] == 1 {
+                        pixel.copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF])
+                    } else {
+                        pixel.copy_from_slice(&[0x00, 0x00, 0x00, 0xFF])
+                    }
                 }
+                display_dt -= one_dis_cycle;
             }
-
-            pixels.render().unwrap()
+            pixels.render().unwrap();
         }
 
         if input.update(&event) {
@@ -104,10 +132,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                 pixels.resize(size.width, size.height);
             }
         }
-
-        if chip8.play_sound() {
-            let sine = rodio::source::SineWave::new(440);
-            sink.append(sine.take_duration(Duration::from_millis(50)));
+        if timer_dt > one_tim_cycle {
+            chip8.dec_timers();
+            if chip8.play_sound() {
+                let sine = rodio::source::SineWave::new(440);
+                sink.append(sine.take_duration(Duration::from_millis(50)));
+            }
+            timer_dt -= one_tim_cycle;
         }
 
         window.request_redraw();
