@@ -6,6 +6,8 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 use clap::{Arg, App, crate_version};
+use rodio::{Sink, Source};
+use std::time::Duration;
 use chipurat8::chip8::{Chip8, WIDTH, HEIGHT};
 
 const KEY_MAP: [(VirtualKeyCode, usize); 16] = [
@@ -63,7 +65,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         Pixels::new(WIDTH as u32, HEIGHT as u32, surface_texture)?
     };
 
+    let device = rodio::default_output_device().unwrap();
+    let sink = Sink::new(&device);
+
     event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Poll;
+
         chip8.run_cycle();
 
         if let Event::RedrawRequested(_) = event {
@@ -98,7 +105,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        window.request_redraw()
+        if chip8.play_sound() {
+            let sine = rodio::source::SineWave::new(440);
+            sink.append(sine.take_duration(Duration::from_millis(50)));
+        }
+
+        window.request_redraw();
     });
 }
 

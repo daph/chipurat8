@@ -86,6 +86,20 @@ impl Chip8 {
         }
     }
 
+    pub fn play_sound(&self) -> bool {
+        self.sound_timer > 0
+    }
+
+    fn dec_timers(&mut self) {
+        if self.delay_timer > 0 {
+            self.delay_timer -= 1;
+        }
+
+        if self.sound_timer > 0 {
+            self.sound_timer -= 1;
+        }
+    }
+
     pub fn run_cycle(&mut self) {
         let op = self.fetch_opcode();
         match self.execute_opcode(op) {
@@ -93,18 +107,9 @@ impl Chip8 {
             PCUpdateFlag::Skip => self.pc += 4,
             PCUpdateFlag::Set(addr) => self.pc = addr,
             PCUpdateFlag::Block => (),
+        }
 
-        }
-        if self.delay_timer > 0 {
-            self.delay_timer -= 1;
-        }
-        // TODO: Implement actual buzzer
-        if self.sound_timer > 0 {
-            if self.sound_timer == 1 {
-                println!("BEEP");
-            }
-            self.sound_timer -= 1;
-        }
+        self.dec_timers();
     }
 
     fn fetch_opcode(&self) -> u16 {
