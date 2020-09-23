@@ -45,9 +45,6 @@ pub struct Chip8 {
 
     // Display
     pub screen: [usize; WIDTH*HEIGHT],
-
-    // If we should draw
-    pub draw_flag: bool,
 }
 
 enum PCUpdateFlag {
@@ -69,7 +66,6 @@ impl Chip8 {
             delay_timer: 0,
             sound_timer: 0,
             screen: [0; WIDTH*HEIGHT],
-            draw_flag: false,
             rng: thread_rng(),
         }
     }
@@ -282,7 +278,6 @@ impl Chip8 {
                     }
                 }
 
-                self.draw_flag = true;
                 PCUpdateFlag::Next
             },
             // Multiple 0xE000 opcodes

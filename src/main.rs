@@ -1,7 +1,31 @@
 use std::error::Error;
-use minifb::{Key, Window, WindowOptions};
+use pixels::{Pixels, SurfaceTexture};
+use winit::dpi::LogicalSize;
+use winit::event::{Event, VirtualKeyCode};
+use winit::event_loop::{ControlFlow, EventLoop};
+use winit::window::WindowBuilder;
+use winit_input_helper::WinitInputHelper;
 use clap::{Arg, App, crate_version};
 use chipurat8::chip8::{Chip8, WIDTH, HEIGHT};
+
+const KEY_MAP: [(VirtualKeyCode, usize); 16] = [
+    (VirtualKeyCode::Key1, 0x1),
+    (VirtualKeyCode::Key2, 0x2),
+    (VirtualKeyCode::Key3, 0x3),
+    (VirtualKeyCode::Key4, 0xC),
+    (VirtualKeyCode::Q,    0x4),
+    (VirtualKeyCode::W,    0x5),
+    (VirtualKeyCode::E,    0x6),
+    (VirtualKeyCode::R,    0xD),
+    (VirtualKeyCode::A,    0x7),
+    (VirtualKeyCode::S,    0x8),
+    (VirtualKeyCode::D,    0x9),
+    (VirtualKeyCode::F,    0xE),
+    (VirtualKeyCode::Z,    0xA),
+    (VirtualKeyCode::X,    0x0),
+    (VirtualKeyCode::C,    0xB),
+    (VirtualKeyCode::V,    0xF),
+];
 
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -19,64 +43,62 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let rom = matches.value_of("rom").unwrap();
 
-    let mut buffer: Vec<u32> = vec![0; (WIDTH) * (HEIGHT)];
-
     let mut chip8 = Chip8::new();
     chip8.init(rom);
 
-    let mut window = Window::new(
-        "Chipurat8",
-        WIDTH*10,
-        HEIGHT*10,
-        WindowOptions::default()
-    )?;
+    let event_loop = EventLoop::new();
+    let mut input = WinitInputHelper::new();
+    let window = {
+        let size = LogicalSize::new((WIDTH*4) as f64, (HEIGHT*4) as f64);
+        WindowBuilder::new()
+            .with_title("Chipurat8")
+            .with_inner_size(size)
+            .with_min_inner_size(size)
+            .build(&event_loop)?
+    };
 
-    window.limit_update_rate(Some(std::time::Duration::from_micros(4150)));
+    let mut pixels = {
+        let window_size = window.inner_size();
+        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
+        Pixels::new(WIDTH as u32, HEIGHT as u32, surface_texture)?
+    };
 
-    while window.is_open() && !window.is_key_down(Key::Escape) {
+    event_loop.run(move |event, _, control_flow| {
         chip8.run_cycle();
 
-        if chip8.draw_flag {
-            let mut j = 0;
-            for i in buffer.iter_mut() {
-                if chip8.screen[j] == 1 {
-                    *i = 0xFFFFFF;
+        if let Event::RedrawRequested(_) = event {
+            for (i, pixel) in pixels.get_frame().chunks_exact_mut(4).enumerate() {
+                if chip8.screen[i] == 1 {
+                    pixel.copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF])
                 } else {
-                    *i = 0;
+                    pixel.copy_from_slice(&[0x00, 0x00, 0x00, 0xFF])
                 }
-                j += 1;
             }
-            window.update_with_buffer(&buffer, WIDTH, HEIGHT)?;
-            chip8.draw_flag = false;
-        } else {
-            window.update();
+
+            pixels.render().unwrap()
         }
 
-        chip8.keys = [0; 16];
-        window.get_keys().map(|keys| {
-            for t in keys {
-                match t {
-                    Key::Key1 => chip8.keys[1] = 1,
-                    Key::Key2 => chip8.keys[2] = 1,
-                    Key::Key3 => chip8.keys[3] = 1,
-                    Key::Key4 => chip8.keys[0xC] = 1,
-                    Key::Q => chip8.keys[4] = 1,
-                    Key::W => chip8.keys[5] = 1,
-                    Key::E => chip8.keys[6] = 1,
-                    Key::R => chip8.keys[0xD] = 1,
-                    Key::A => chip8.keys[7] = 1,
-                    Key::S => chip8.keys[8] = 1,
-                    Key::D => chip8.keys[9] = 1,
-                    Key::F => chip8.keys[0xE] = 1,
-                    Key::Z => chip8.keys[0xA] = 1,
-                    Key::X => chip8.keys[0] = 1,
-                    Key::C => chip8.keys[0xB] = 1,
-                    Key::V => chip8.keys[0xF] = 1,
-                    _ => ()
+        if input.update(&event) {
+            for (k, n) in KEY_MAP.iter() {
+                if input.key_pressed(*k) {
+                    chip8.keys[*n] = 1
+                }
+                if input.key_released(*k) {
+                    chip8.keys[*n] = 0
                 }
             }
-        });
-    }
 
-    Ok(())
+            if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
+                *control_flow = ControlFlow::Exit;
+                return;
+            }
+
+            if let Some(size) = input.window_resized() {
+                pixels.resize(size.width, size.height);
+            }
+        }
+
+        window.request_redraw()
+    });
 }
+
