@@ -271,7 +271,7 @@ impl Chip8 {
                 for y in 0..n {
                     let px = self.memory[self.i+y];
                     for x in 0..8 {
-                        let location = ((vx + x) % WIDTH)+ (((vy + y) % HEIGHT) * WIDTH);
+                        let location = ((vx + x) % WIDTH) + (((vy + y) % HEIGHT) * WIDTH);
                         if px & (0x80 >> x) != 0 {
                             if self.screen[location] == 1 {
                                 self.v[0xF] = 1;
