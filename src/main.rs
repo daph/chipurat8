@@ -1,5 +1,5 @@
 use std::error::Error;
-use pixels::{Pixels, SurfaceTexture};
+use pixels::{PixelsBuilder, SurfaceTexture};
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -8,7 +8,6 @@ use winit_input_helper::WinitInputHelper;
 use clap::{Arg, App, crate_version};
 use rodio::{Sink, Source};
 use std::time::{Duration, Instant};
-use std::thread;
 use chipurat8::chip8::{Chip8, WIDTH, HEIGHT};
 
 const KEY_MAP: [(VirtualKeyCode, usize); 16] = [
@@ -51,8 +50,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .get_matches();
 
     let rom = matches.value_of("rom").unwrap();
-    let cpu_hz = matches.value_of("cpu-hz").unwrap().parse::<u64>()?;
-    let cpu_cycle = 1000000 / cpu_hz;
+    let cpu_hz = matches.value_of("cpu-hz").unwrap().parse::<f64>()?;
+
+    let cycles_per_frame = (cpu_hz / 60.0) as u64;
+    let extra_cycle_every = (((cpu_hz / 60.0) % 1.0) * 10.0) as u64;
 
     let mut chip8 = Chip8::new();
     chip8.init(rom);
@@ -71,62 +72,29 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut pixels = {
         let window_size = window.inner_size();
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        Pixels::new(WIDTH as u32, HEIGHT as u32, surface_texture)?
+        PixelsBuilder::new(WIDTH as u32, HEIGHT as u32, surface_texture)
+            .enable_vsync(true)
+            .build()?
     };
 
     // Set up some stuff for the sound
     let device = rodio::default_output_device().unwrap();
     let sink = Sink::new(&device);
 
-    // Bunch of stuff to control timing of the CPU, display, and timers
+    // Control the timing of our updates
     let mut time = Instant::now();
-    let mut cpu_dt = Duration::new(0, 0);
-    let mut display_dt = Duration::new(0, 0);
-    let mut timer_dt = Duration::new(0, 0);
-    let one_cpu_cycle = Duration::from_micros(cpu_cycle);
-    let one_dis_cycle = Duration::from_micros(16667);
-    let one_tim_cycle = Duration::from_micros(16667);
+    let mut update_dt = Duration::new(0, 0);
+    let update_rate = Duration::from_micros(16667);
 
-    // Ugly bad hack to force the winit event_loop to acutally run constantly
-    // Without this (at least on linux/x11) the event_loop slows itself down when there isn't
-    // constant events (like moving your mouse around wildly), which slows down all the timings.
-    // If I read the docs right ControlFlow::Poll should act like how I want, but it doesn't
-    let el_proxy = event_loop.create_proxy();
-    thread::spawn(move || {
-        loop {
-            el_proxy.send_event(()).unwrap();
-            thread::sleep(Duration::new(0, 100));
-        }
-    });
+    let mut frame_count = 0;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
         let now = Instant::now();
         let dt = now.duration_since(time);
-        cpu_dt += dt;
-        display_dt += dt;
-        timer_dt += dt;
+        update_dt += dt;
         time = now;
-
-        if cpu_dt >= one_cpu_cycle {
-            chip8.run_cycle();
-            cpu_dt -= one_cpu_cycle;
-        }
-
-        if let Event::RedrawRequested(_) = event {
-            if display_dt >= one_dis_cycle {
-                for (i, pixel) in pixels.get_frame().chunks_exact_mut(4).enumerate() {
-                    if chip8.screen[i] == 1 {
-                        pixel.copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF])
-                    } else {
-                        pixel.copy_from_slice(&[0x00, 0x00, 0x00, 0xFF])
-                    }
-                }
-                display_dt -= one_dis_cycle;
-            }
-            pixels.render().unwrap();
-        }
 
         if input.update(&event) {
             for (k, n) in KEY_MAP.iter() {
@@ -147,14 +115,46 @@ fn main() -> Result<(), Box<dyn Error>> {
                 pixels.resize(size.width, size.height);
             }
         }
-        if timer_dt > one_tim_cycle {
-            chip8.dec_timers();
-            if chip8.play_sound() {
-                let sine = rodio::source::SineWave::new(440);
-                sink.append(sine.take_duration(Duration::from_millis(50)));
-            }
-            timer_dt -= one_tim_cycle;
-        }
+
+        match event {
+            Event::MainEventsCleared => {
+                if update_dt >= update_rate {
+
+                    for _ in 0..cycles_per_frame {
+                        chip8.run_cycle();
+                    }
+
+                    // run an extra cycle every few frames to catch up to our target hz
+                    // if our target hz is not evenly divisble by 60
+                    if frame_count >= extra_cycle_every && extra_cycle_every != 0 {
+                        chip8.run_cycle();
+                        frame_count = 0;
+                    }
+
+                    for (i, pixel) in pixels.get_frame().chunks_exact_mut(4).enumerate() {
+                        if chip8.screen[i] == 1 {
+                            pixel.copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF])
+                        } else {
+                            pixel.copy_from_slice(&[0x00, 0x00, 0x00, 0xFF])
+                        }
+                    }
+
+                    if extra_cycle_every > 0 {
+                        frame_count += 1;
+                    }
+
+                    chip8.dec_timers();
+                    if chip8.play_sound() {
+                        let sine = rodio::source::SineWave::new(440);
+                        sink.append(sine.take_duration(Duration::from_millis(50)));
+                    }
+
+                    update_dt -= update_rate;
+                }
+                pixels.render().unwrap();
+            },
+            _ => (),
+        };
 
         window.request_redraw();
     });
